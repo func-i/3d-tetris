@@ -2,7 +2,12 @@
 var theGame;
 window.addEventListener("load", function(){
   theGame = new GameController();
-  theGame.play()
+
+  var playButton = document.getElementById('play');
+  playButton.addEventListener("click", function(){
+    theGame.play();
+    playButton.style.display = "none";
+  });
 });
 
 window.addEventListener('keydown', function (event) {
@@ -53,12 +58,11 @@ window.addEventListener('keydown', function (event) {
 
 function GameController(){
   this.setupThreeJS();
-  this.setupBoard();
   this.setupHeadTracking();
 }
 
 GameController.prototype.setupHeadTracking = function(){
-  headtrackr.controllers.three.realisticAbsoluteCameraControl(this.camera, 50, [0,0,0], new THREE.Vector3(0,0,0), {damping : 2});
+  headtrackr.controllers.three.realisticAbsoluteCameraControl(this.camera, 25, [0,0,0], new THREE.Vector3(0,0,0), {damping : 1});
 
   // Face detection setup
   var videoInput = document.getElementById('vid');
@@ -91,7 +95,7 @@ GameController.prototype.setupThreeJS = function(){
   this.scene = new THREE.Scene();
 
   // the camera starts at 0,0,0 so pull it back
-  this.camera.position.z = 600;
+  this.camera.position.z = 400;
   this.scene.add(this.camera);
 
   // start the renderer
@@ -120,15 +124,19 @@ GameController.prototype.setupBoard = function(){
 }
 
 GameController.prototype.play = function(){
+  this.renderer.clear();
+
+  this.setupBoard();
+
   this.gameStepTime = 1000;
 
   this.frameTime = 0; // ms
   this.cumulatedFrameTime = 0; // ms
   this._lastFrameTime = Date.now(); // timestamp
 
-  this.gameOver = false;
-
   this.generateCurrentBlock();
+
+  this.runAnimationLoop = true;
 
   this.animate();
 };
@@ -138,7 +146,7 @@ GameController.prototype.generateCurrentBlock = function(){
   this.currentBlock.generate();
 
   if (this.board.testCollision(true) === Board.COLLISION.GROUND) {
-    this.gameOver = true;
+    this.gameOver();
   }
 };
 
@@ -158,8 +166,15 @@ GameController.prototype.animate = function(){
 
   //this.stats.update();
 
-  if(!this.gameOver) window.requestAnimationFrame(this.animate.bind(this));
+  if(this.runAnimationLoop) window.requestAnimationFrame(this.animate.bind(this));
 }
+
+GameController.prototype.gameOver = function(){
+  this.runAnimationLoop = false;
+
+  var playButton = document.getElementById('play');
+  playButton.style.display = "block";
+};
 
 GameController.prototype.currentPoints = 0;
 GameController.prototype.addPoints = function (n) {
@@ -208,7 +223,7 @@ Board.prototype.generate = function(){
   );
 
   var boundingBox = new THREE.Mesh(geometry, material);
-  boundingBox.position.z = -this.boundingBoxConfig.depth + this.gameController.camera.position.z;
+  boundingBox.position.z = -this.boundingBoxConfig.depth + 600;
 
   this.gameController.scene.add(boundingBox);
 
