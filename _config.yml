@@ -1,0 +1,8 @@
+name: 3d Tetris
+markdown: redcarpet
+pygments: true
+exclude: [Rakefile, README.md, Gemfile, Gemfile.lock]
+assets:
+  debug: true
+  cachebust: hard
+  gzip: false
