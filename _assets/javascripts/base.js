@@ -54,6 +54,18 @@ window.addEventListener('keydown', function (event) {
 function GameController(){
   this.setupThreeJS();
   this.setupBoard();
+  this.setupHeadTracking();
+}
+
+GameController.prototype.setupHeadTracking = function(){
+  headtrackr.controllers.three.realisticAbsoluteCameraControl(this.camera, 50, [0,0,0], new THREE.Vector3(0,0,0), {damping : 2});
+
+  // Face detection setup
+  var videoInput = document.getElementById('vid');
+  var canvasInput = document.getElementById('compare');
+  var htracker = new headtrackr.Tracker();
+  htracker.init(videoInput, canvasInput);
+  htracker.start();
 };
 
 GameController.prototype.setupThreeJS = function(){
@@ -149,9 +161,12 @@ GameController.prototype.animate = function(){
   if(!this.gameOver) window.requestAnimationFrame(this.animate.bind(this));
 }
 
-function Camera(){
-
+GameController.prototype.currentPoints = 0;
+GameController.prototype.addPoints = function (n) {
+    this.currentPoints += n;
+    document.getElementById('points').innerHTML = this.currentPoints;
 };
+
 
 function Board(gameController){
   this.gameController = gameController;
@@ -179,20 +194,22 @@ Board.prototype.staticBlocks = [];
 Board.prototype.fields = [];
 
 Board.prototype.generate = function(){
-  var boundingBox = new THREE.Mesh(
-    new THREE.CubeGeometry(
-      this.boundingBoxConfig.width,
-      this.boundingBoxConfig.height,
-      this.boundingBoxConfig.depth,
-      this.boundingBoxConfig.splitX,
-      this.boundingBoxConfig.splitY,
-      this.boundingBoxConfig.splitZ
-    ),
-    new THREE.MeshBasicMaterial({
-      color: 0xffaa00,
-      wireframe: true
-    })
+  var material =  new THREE.MeshBasicMaterial({
+    color: 0xaaaa00,
+    wireframe: true
+  });
+  var geometry = new THREE.CubeGeometry(
+    this.boundingBoxConfig.width,
+    this.boundingBoxConfig.height,
+    1,
+    this.boundingBoxConfig.splitX,
+    this.boundingBoxConfig.splitY,
+    this.boundingBoxConfig.splitZ
   );
+
+  var boundingBox = new THREE.Mesh(geometry, material);
+  boundingBox.position.z = -this.boundingBoxConfig.depth + this.gameController.camera.position.z;
+
   this.gameController.scene.add(boundingBox);
 
   // first render
@@ -233,6 +250,33 @@ Board.prototype.addStaticBlock = function(x,y,z) {
   this.fields[x][y][z] = Board.FIELD.PETRIFIED;
 };
 
+Board.prototype.showWall = function(){
+  if(this.wall) return;
+
+  var material =  new THREE.MeshBasicMaterial({
+    color: 0xaaaa00,
+    wireframe: true
+  });
+  var geometry = new THREE.CubeGeometry(
+    this.boundingBoxConfig.width,
+    this.boundingBoxConfig.height,
+    this.boundingBoxConfig.depth,
+    this.boundingBoxConfig.splitX,
+    this.boundingBoxConfig.splitY,
+    this.boundingBoxConfig.splitZ
+  );
+
+  var boundingBox = new THREE.Mesh(geometry, material);
+
+  this.gameController.scene.add(boundingBox);
+
+  var that = this;
+  this.hideWallTimer = window.setTimeout(function(){
+      that.gameController.scene.remove(boundingBox);
+  }, 100);
+};
+
+
 Board.prototype.testCollision = function(ground_check){
   var x, y, z, i;
 
@@ -260,6 +304,55 @@ Board.prototype.testCollision = function(ground_check){
   } 
 }
 
+Board.prototype.checkCompleted = function() {
+  var x,y,z,x2,y2,z2, fields = this.fields;
+  var rebuild = false;
+
+  var sum, expected = fields[0].length*fields.length, bonus = 0;
+
+  for(z = 0; z < fields[0][0].length; z++) {
+    sum = 0;
+    for(y = 0; y < fields[0].length; y++) {
+      for(x = 0; x < fields.length; x++) {
+        if(fields[x][y][z] === Board.FIELD.PETRIFIED) sum++;
+      }
+    }
+
+    if(sum == expected) {
+      bonus += 1 + bonus; // 1, 3, 7, 15...
+   
+      for(y2 = 0; y2 < fields[0].length; y2++) {
+        for(x2 = 0; x2 < fields.length; x2++) {
+          for(z2 = z; z2 < fields[0][0].length-1; z2++) {
+            this.fields[x2][y2][z2] = fields[x2][y2][z2+1]; // shift
+          }
+          this.fields[x2][y2][fields[0][0].length-1] = Board.FIELD.EMPTY;
+        }
+      }
+      rebuild = true;
+      z--;
+    }
+  }
+  if(bonus) {
+    this.gameController.addPoints(1000 * bonus);
+  }
+
+  if(rebuild) {
+    for(var z = 0; z < fields[0][0].length-1; z++) {
+      for(var y = 0; y < fields[0].length; y++) {
+        for(var x = 0; x < fields.length; x++) {
+          if(fields[x][y][z] === Board.FIELD.PETRIFIED && !this.staticBlocks[x][y][z]) {
+            this.addStaticBlock(x,y,z);
+          }
+          if(fields[x][y][z] == Board.FIELD.EMPTY && this.staticBlocks[x][y][z]) {
+            this.gameController.scene.remove(this.staticBlocks[x][y][z]);
+            this.staticBlocks[x][y][z] = undefined;
+          }
+        }
+      }
+    }
+  }
+}
 
 function Block(blockSize, gameController){
   this.blockSize = blockSize;
@@ -345,6 +438,7 @@ Block.prototype.rotate = function(x,y,z) {
 
   if (this.gameController.board.testCollision(false) === Board.COLLISION.WALL) {
     this.rotate(-x, -y, -z);
+    this.gameController.board.showWall();
   }
 };
 
@@ -362,9 +456,11 @@ Block.prototype.move = function(x,y,z) {
   var collision = this.gameController.board.testCollision((z != 0));
   if (collision === Board.COLLISION.WALL) {
     this.move(-x, -y, 0);
+    this.gameController.board.showWall();
   }
   if (collision === Board.COLLISION.GROUND) {
     this.hitBottom();
+    this.gameController.board.checkCompleted();
   }
 };
 
